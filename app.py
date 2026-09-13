@@ -18,6 +18,7 @@ Run with:  streamlit run app.py
 import io
 import re
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 from streamlit import column_config as cc
@@ -384,6 +385,46 @@ elif nav == "Analysis":
                 use_container_width=True,
                 hide_index=True,
             )
+
+        pf = an.pass_fail_breakdown(analytics_df, semesters_in_run)
+        if not pf.empty:
+            st.markdown("##### Pass vs Fail")
+            st.caption(
+                "Pass = the semester record carried an SGPA; Fail = no SGPA "
+                "(means at least one F-grade backlog that semester). 'Overall' "
+                "sums all semester records."
+            )
+            chosen = st.selectbox(
+                "Semester / scope", pf["scope"].tolist(),
+                key="pie_scope", label_visibility="collapsed",
+            )
+            row = pf[pf["scope"] == chosen].iloc[0]
+            passed, failed = int(row["passed"]), int(row["failed"])
+            total = passed + failed
+            c1, c2, c3, c4 = st.columns([1, 1, 1, 3])
+            c1.metric("Passed", passed)
+            c2.metric("Failed", failed)
+            c3.metric("Pass rate", f"{100.0 * passed / total:.1f}%" if total else "—")
+            with c4:
+                pie = pd.DataFrame({"Status": ["Passed", "Failed"], "Count": [passed, failed]})
+                chart = (
+                    alt.Chart(pie)
+                    .mark_arc(innerRadius=40, outerRadius=100)
+                    .encode(
+                        color=alt.Color(
+                            "Status:N",
+                            scale=alt.Scale(
+                                domain=["Passed", "Failed"],
+                                range=["#2e7d32", "#d32f2f"],
+                            ),
+                            legend=alt.Legend(title=None, orient="right"),
+                        ),
+                        theta=alt.Theta("Count:Q", stack=True),
+                        tooltip=["Status:N", "Count:Q"],
+                    )
+                    .properties(width=260, height=230)
+                )
+                st.altair_chart(chart, width="content")
 
         rankings = an.subject_ranking(analytics_df, semesters_in_run)
         if not rankings.empty:

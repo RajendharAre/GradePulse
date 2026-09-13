@@ -197,6 +197,31 @@ def branch_comparison(df: pd.DataFrame, semester_labels: List[str]) -> pd.DataFr
     return pd.concat(frames, ignore_index=True)
 
 
+def pass_fail_breakdown(df: pd.DataFrame, semester_labels: List[str]) -> pd.DataFrame:
+    """
+    Passed-vs-failed headcounts per semester for the pie chart (definition:
+    'has SGPA'). Overall = sum of all semester records, so a student counts
+    once per semester they sat; the row label says so explicitly.
+    """
+    summary = _sem_summary(df, semester_labels)
+    if summary.empty:
+        return pd.DataFrame(columns=["scope", "passed", "failed"])
+    rows = []
+    total_passed = total_failed = 0
+    for sem in semester_labels:
+        sub = summary[summary["semester_label"] == sem]
+        if sub.empty:
+            continue
+        passed = int(sub["promoted"].sum())
+        failed = int(len(sub) - passed)
+        total_passed += passed
+        total_failed += failed
+        rows.append({"scope": sem, "passed": passed, "failed": failed})
+    rows.append({"scope": "Overall (all semester records)",
+                 "passed": total_passed, "failed": total_failed})
+    return pd.DataFrame(rows)
+
+
 def scope_summary(students_count: int, branches: List[str], semesters: List[str],
                   batch_year: str, reg_start: int, reg_end: int,
                   include_lateral: bool, lat_start: int, lat_end: int) -> str:

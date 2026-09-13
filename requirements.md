@@ -234,6 +234,9 @@ Views exposed in the app after a fetch:
   students actually have V/VI data (never a phantom 0%).
 - **Subject failure ranking** — subjects with most `F` grades (code, name,
   attempts, fails, pass-rate), bar + table.
+- **Pass vs Fail pie chart** — donut per semester / overall scope
+  (definition: has SGPA = Pass; missing SGPA = Fail); Altair, native to
+  Streamlit.
 - **Branch comparison** — same metrics per (branch, semester), only when >1
   branch was selected in that run.
 
