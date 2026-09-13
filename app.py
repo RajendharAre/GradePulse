@@ -14,6 +14,7 @@ student if needed. No admin credentials are used.
 Run with:  streamlit run app.py
 """
 
+import hashlib
 import io
 import re
 
@@ -46,6 +47,7 @@ if "visit_value" not in st.session_state:
 
 
 # --- Faculty access gate ---
+_GATE_HASH = "a3a30b87835942403fbdd4c475a16daac98684f1258999ce3899760d36bbd119"
 if "faculty_ok" not in st.session_state:
     st.session_state["faculty_ok"] = False
 
@@ -56,10 +58,15 @@ if not st.session_state["faculty_ok"]:
         unsafe_allow_html=True,
     )
     st.markdown("Authorized institutional use only.")
-    email = st.text_input("Institutional email", placeholder="name@department.college.edu")
+    email = st.text_input("Institutional email", placeholder="Enter your college mail")
+    password = st.text_input("Password", type="password")
     if st.button("Continue", key="gate_go"):
         given = (email or "").strip().lower()
-        if "@" in given and given.endswith("mvsrec.edu.in"):
+        ok_email = "@" in given and given.endswith("mvsrec.edu.in")
+        ok_password = (
+            hashlib.sha256((password or "").encode("utf-8")).hexdigest() == _GATE_HASH
+        )
+        if ok_email and ok_password:
             st.session_state["faculty_ok"] = True
             st.rerun()
         st.error("Access is limited to authorized accounts.")
