@@ -31,12 +31,19 @@ from local_store import (
     load_notes, add_note, delete_note,
     load_feedback, add_feedback, NOTE_CATEGORIES,
 )
+from visit_counter import record_visit
+from report_export import build_pdf_report
 import analytics as an
 
 FOURTH_YEAR_LABEL = "4th Year (V + VI SEM)"
 NAV_OPTIONS = ["Home", "Results", "Analysis", "Notes", "Feedback"]
 
 st.set_page_config(page_title="GradePulse — Student Result Aggregator", layout="wide")
+
+
+# --- Visit counter: counted once per browser session, badge shown everywhere ---
+if "visit_value" not in st.session_state:
+    st.session_state["visit_value"] = record_visit()
 
 
 def _safe_filename(name: str) -> str:
@@ -62,6 +69,88 @@ def _metric_cols() -> dict:
     }
 
 
+def _execute_run(
+    rolls_by_branch, semesters, batch_year,
+    max_retries=2, rerun=False, scope_override=None,
+) -> None:
+    """
+    Shared fetch orchestration used by both the main Results button and the
+    're-run only failed students' shortcut. Performs the fetch (per branch),
+    writes the results cache + Excel, persists everything to session_state and
+    jumps back to the Results tab so the UI can show the status.
+    """
+    total_rolls = sum(len(rolls) for _, rolls in rolls_by_branch.items())
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    done = {"n": 0}
+    total = {"n": total_rolls}
+
+    def update_progress(i, total_rolls_, roll):
+        done["n"] += 1
+        progress_bar.progress(done["n"] / total["n"])
+        status_text.text(f"Processing {roll} ({done['n']}/{total['n']})")
+
+    try:
+        all_results = []
+        branch_groups = []
+        for br_name, (br_code, rolls) in rolls_by_branch.items():
+            label = "Re-fetching failed students" if rerun else f"Fetching {len(rolls)} students"
+            with st.status(f"[{br_name}] {label}..."):
+                branch_results = fetch_all_results_auto(
+                    roll_numbers=rolls,
+                    semester_labels=semesters,
+                    max_retries=max_retries,
+                    progress_callback=update_progress,
+                )
+                written = save_results_to_cache(
+                    branch_results, br_name, batch_year, br_code,
+                )
+                n_fail = sum(1 for r in branch_results if r.error)
+                st.write(
+                    f"Done: {len(branch_results) - n_fail}/{len(branch_results)} OK, "
+                    f"{n_fail} failed. Cache → `{_safe_filename(written['long_path'])}`"
+                )
+            branch_groups.append((br_name, br_code, branch_results))
+            all_results.extend(branch_results)
+
+        failed_students = [r.roll_number for r in all_results if r.error]
+        ok_students = [r for r in all_results if not r.error]
+
+        frames = [
+            results_to_long_dataframe(rs, br, batch_year, bc)
+            for br, bc, rs in branch_groups
+        ]
+        analytics_df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+        excel_bytes = export_to_excel(all_results, semesters).getvalue()
+
+        scope = scope_override or an.scope_summary(
+            students_count=len(ok_students),
+            branches=[br for br, _, _ in branch_groups],
+            semesters=list(semesters),
+            batch_year=batch_year,
+            reg_start=0, reg_end=0, include_lateral=False, lat_start=0, lat_end=0,
+        )
+
+        st.session_state["run_ok"] = len(ok_students)
+        st.session_state["run_total"] = len(all_results)
+        st.session_state["run_failed"] = failed_students
+        st.session_state["rerun_groups"] = [
+            (br, bc, [r.roll_number for r in rs if r.error])
+            for br, bc, rs in branch_groups if any(r.error for r in rs)
+        ]
+        st.session_state["rerun_semesters"] = list(semesters)
+        st.session_state["rerun_batch_year"] = batch_year
+        st.session_state["analytics_df"] = analytics_df
+        st.session_state["analytics_semesters"] = list(semesters)
+        st.session_state["analytics_scope"] = scope
+        st.session_state["excel_bytes"] = excel_bytes
+        _go_to("Results")
+    except Exception as e:
+        st.error(f"Something went wrong: {e}")
+        st.exception(e)
+
+
 # ---------------------------------------------------------------------------
 # Navigation
 # ---------------------------------------------------------------------------
@@ -69,11 +158,45 @@ def _metric_cols() -> dict:
 # ("nav_active"), so buttons anywhere can switch tabs via _go_to() without
 # hitting Streamlit's rule that a widget's key cannot be changed after render.
 _active_tab = st.session_state.get("nav_active", "Home")
+
 st.markdown(
-    "<style>div[data-testid='stSegmentedControl']{max-width:720px;margin:0 auto 1rem auto;}"
-    "div[data-testid='stSegmentedControl']>div{background-color:#f6f7f9;border-radius:14px;padding:6px;}</style>",
+    """
+    <style>
+    /* subtle, professional motion + brand polish */
+    @keyframes gpFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    div[data-testid='stMetric'],
+    div[data-testid='stHorizontalBlock'] > div,
+    div[data-testid='stVerticalBlockBorderWrapper'] { animation: gpFade .45s ease both; }
+    .stButton > button:hover { box-shadow: 0 4px 14px rgba(0,0,0,.14); transform: translateY(-1px); }
+    .stButton > button { transition: box-shadow .2s ease, transform .2s ease; }
+    .gp-brand { font-size: 1.55rem; font-weight: 800; letter-spacing: -.5px;
+                background: linear-gradient(90deg, #20325c, #2e6f8f);
+                -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .gp-tagline { margin-top: -6px; color: #778088; font-size: .85rem; }
+    .gp-badge { display:inline-block; background:#eef2f8; border:1px solid #d7deea;
+                color:#20325c; font-size:.8rem; font-weight:600; padding:.28rem .7rem;
+                border-radius:999px; white-space:nowrap; }
+    .gp-footer { text-align:center; color:#98a2ae; font-size:.78rem; margin-top:2rem; }
+    div[data-testid='stSegmentedControl']{max-width:720px;margin:.4rem auto 1rem auto;}
+    div[data-testid='stSegmentedControl']>div{background-color:#f6f7f9;border-radius:14px;padding:6px;}
+    </style>
+    """,
     unsafe_allow_html=True,
 )
+
+_col_brand, _col_visit = st.columns([4, 1])
+with _col_brand:
+    st.markdown("<div class='gp-brand'>GradePulse</div><div class='gp-tagline'>"
+                "Student Result Aggregator & Analytics Platform</div>",
+                unsafe_allow_html=True)
+with _col_visit:
+    visits = st.session_state.get("visit_value")
+    st.markdown(
+        f"<div style='text-align:right'><span class='gp-badge'>"
+        f"Visits (sessions): {visits if visits is not None else '—'}</span></div>",
+        unsafe_allow_html=True,
+    )
+
 _chosen = st.segmented_control(
     "Navigation",
     options=NAV_OPTIONS,
@@ -93,8 +216,6 @@ if nav == "Home":
     col_logo, col_dev = st.columns([2, 1], gap="large")
 
     with col_logo:
-        st.title("GradePulse")
-        st.subheader("Student Result Aggregator & Analytics Platform")
         st.markdown(
             "Pulls exam results in bulk from the college portal and turns them into "
             "clean Excel reports and pass/fail analytics for every semester — built "
@@ -147,9 +268,9 @@ if nav == "Home":
 
     st.markdown("### Get started")
     b1, b2, _ = st.columns(3)
-    if b1.button("Fetch Results", type="primary", use_container_width=True):
+    if b1.button("Fetch Results", type="primary", width="stretch"):
         _go_to("Results")
-    if b2.button("View Analysis", use_container_width=True):
+    if b2.button("View Analysis", width="stretch"):
         _go_to("Analysis")
 
     st.info(
@@ -164,6 +285,24 @@ if nav == "Home":
 # ---------------------------------------------------------------------------
 elif nav == "Results":
     st.title("Student Result Aggregator")
+
+    if st.session_state.pop("trigger_rerun", False):
+        groups = st.session_state.get("rerun_groups", [])
+        sems = st.session_state.get("rerun_semesters", [])
+        batch_year_rerun = st.session_state.get("rerun_batch_year", "23")
+        if groups and sems:
+            total_failed = sum(len(rolls) for _, _, rolls in groups)
+            st.info(f"Re-running **{total_failed}** previously failed student(s) for "
+                    f"the same semester(s): {', '.join(sems)}.")
+            _execute_run(
+                {name: (code, rolls) for name, code, rolls in groups},
+                sems, batch_year_rerun, max_retries=2, rerun=True,
+                scope_override=(
+                    f"Re-run of previously failed students · branches: "
+                    f"{', '.join(name for name, _, _ in groups)} · semesters: "
+                    f"{', '.join(sems)} · {total_failed} student(s)"
+                ),
+            )
 
     st.subheader("1. Roll Number Range")
     col1, col2 = st.columns(2)
@@ -232,14 +371,13 @@ elif nav == "Results":
         "you decide to."
     )
 
-    if st.button("Fetch Results", type="primary", use_container_width=True):
+    if st.button("Fetch Results", type="primary", width="stretch"):
         if not selected_semesters:
             st.error("Select at least one semester.")
         elif not branch_pairs:
             st.error("Select at least one branch.")
         else:
             rolls_by_branch = {}
-            total_rolls = 0
             for br_name, br_code in branch_pairs:
                 scheme = RollScheme(college_code=college_code, batch_year=batch_year, branch_code=br_code)
                 rolls = generate_roll_numbers(
@@ -249,70 +387,20 @@ elif nav == "Results":
                     lateral_start=int(lat_start), lateral_end=int(lat_end),
                 )
                 rolls_by_branch[br_name] = (br_code, rolls)
-                total_rolls += len(rolls)
 
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            done = {"n": 0}
-            total = {"n": total_rolls}
-
-            def update_progress(i, total_rolls_, roll):
-                done["n"] += 1
-                progress_bar.progress(done["n"] / total["n"])
-                status_text.text(f"Processing {roll} ({done['n']}/{total['n']})")
-
-            try:
-                all_results = []
-                branch_groups = []
-                for br_name, (br_code, rolls) in rolls_by_branch.items():
-                    with st.status(f"[{br_name}] Fetching {len(rolls)} students..."):
-                        branch_results = fetch_all_results_auto(
-                            roll_numbers=rolls,
-                            semester_labels=selected_semesters,
-                            max_retries=int(max_retries),
-                            progress_callback=update_progress,
-                        )
-                        written = save_results_to_cache(
-                            branch_results, br_name, batch_year, br_code,
-                        )
-                        n_fail = sum(1 for r in branch_results if r.error)
-                        st.write(
-                            f"Done: {len(branch_results) - n_fail}/{len(branch_results)} OK, "
-                            f"{n_fail} failed. Cache → `{_safe_filename(written['long_path'])}`"
-                        )
-                    branch_groups.append((br_name, br_code, branch_results))
-                    all_results.extend(branch_results)
-
-                failed_students = [r.roll_number for r in all_results if r.error]
-                ok_students = [r for r in all_results if not r.error]
-
-                frames = [
-                    results_to_long_dataframe(rs, br, batch_year, bc)
-                    for br, bc, rs in branch_groups
-                ]
-                analytics_df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-
-                excel_bytes = export_to_excel(all_results, selected_semesters).getvalue()
-
-                st.session_state["run_ok"] = len(ok_students)
-                st.session_state["run_total"] = len(all_results)
-                st.session_state["run_failed"] = failed_students
-                st.session_state["analytics_df"] = analytics_df
-                st.session_state["analytics_semesters"] = list(selected_semesters)
-                st.session_state["analytics_scope"] = an.scope_summary(
-                    students_count=len(ok_students),
-                    branches=[br for br, _, _ in branch_groups],
+            _execute_run(
+                rolls_by_branch, selected_semesters, batch_year,
+                max_retries=int(max_retries),
+                scope_override=an.scope_summary(
+                    students_count=sum(len(rs) for _, rs in rolls_by_branch.values()),
+                    branches=list(rolls_by_branch),
                     semesters=list(selected_semesters),
                     batch_year=batch_year,
                     reg_start=int(reg_start), reg_end=int(reg_end),
                     include_lateral=include_lateral,
                     lat_start=int(lat_start), lat_end=int(lat_end),
-                )
-                st.session_state["excel_bytes"] = excel_bytes
-                _go_to("Results")
-            except Exception as e:
-                st.error(f"Something went wrong: {e}")
-                st.exception(e)
+                ),
+            )
 
     # Post-run status + download from the last completed fetch
     if st.session_state.get("analytics_df") is not None:
@@ -328,16 +416,24 @@ elif nav == "Results":
             )
         st.divider()
         excel_bytes = st.session_state.get("excel_bytes")
-        c1, c2, _ = st.columns([1, 1, 2])
+        c1, c2, c3, _ = st.columns([1, 1, 1, 2])
         if excel_bytes:
             c1.download_button(
                 label="Download Excel",
                 data=io.BytesIO(excel_bytes),
                 file_name="student_results.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
+                width="stretch",
             )
-        if c2.button("View Analysis", use_container_width=True):
+        if st.session_state.get("rerun_groups"):
+            if c2.button(
+                "Re-run only the failed students",
+                width="stretch",
+                help="Fetch just the student(s) that failed the last run (same semesters).",
+            ):
+                st.session_state["trigger_rerun"] = True
+                st.rerun()
+        if c3.button("View Analysis", width="stretch"):
             _go_to("Analysis")
 
 
@@ -382,7 +478,7 @@ elif nav == "Analysis":
             st.dataframe(
                 sem_df,
                 column_config={"label": cc.TextColumn("Semester"), **_metric_cols()},
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -442,11 +538,43 @@ elif nav == "Analysis":
                     "n_fails": cc.NumberColumn("F grades", format="%d"),
                     "pass_rate": cc.NumberColumn("Pass-rate", format="%.1f%%"),
                 },
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
         else:
             st.info("No failing subjects (grade F) in this scope — clean across the board.")
+
+        if not rankings.empty:
+            bl = an.backlog_report(analytics_df, semesters_in_run)
+            if not bl.empty:
+                st.markdown("##### Backlog report (students with F grades)")
+                st.caption("One row per failed subject attempt — the list faculty "
+                           "usually needs for mentoring and committee meetings.")
+                bl_filter = st.text_input(
+                    "Filter by roll number", placeholder="e.g. 2451-23-733",
+                    key="bl_filter",
+                )
+                view = bl
+                if bl_filter.strip():
+                    view = bl[bl["roll_number"].str.upper()
+                              .str.contains(bl_filter.strip().upper(), na=False)]
+                st.dataframe(
+                    view,
+                    column_config={
+                        "roll_number": cc.TextColumn("Roll number"),
+                        "semester_label": cc.TextColumn("Semester"),
+                        "subject_code": cc.TextColumn("Subject code"),
+                        "subject_name": cc.TextColumn("Subject name"),
+                    },
+                    width="stretch",
+                    hide_index=True,
+                )
+                st.download_button(
+                    "Download backlog CSV",
+                    data=view.to_csv(index=False).encode("utf-8"),
+                    file_name="backlog_report.csv",
+                    mime="text/csv",
+                )
 
         if analytics_df["branch"].nunique(dropna=True) > 1:
             bc = an.branch_comparison(analytics_df, semesters_in_run)
@@ -459,9 +587,24 @@ elif nav == "Analysis":
                         "label": cc.TextColumn("Semester"),
                         **_metric_cols(),
                     },
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
+
+        st.divider()
+        scope_line = st.session_state.get("analytics_scope", "")
+        pdf_bytes = build_pdf_report(analytics_df, semesters_in_run, scope_line)
+        c1, c2 = st.columns([1, 3])
+        c1.download_button(
+            "Download PDF report",
+            data=pdf_bytes,
+            file_name="gradepulse_results_report.pdf",
+            mime="application/pdf",
+            type="primary",
+            width="stretch",
+        )
+        c2.caption("PDF includes the KPIs, 4th-year row, per-semester table, top "
+                   "failing subjects and backlog summary for this run.")
 
 
 # ---------------------------------------------------------------------------
@@ -510,7 +653,7 @@ elif nav == "Notes":
                 "note": cc.TextColumn("Note", width="large"),
                 "added": cc.TextColumn("Added"),
             },
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
         if notes:
@@ -561,3 +704,14 @@ elif nav == "Feedback":
             st.success("Thank you! Your feedback has been recorded locally and will be "
                        "reviewed for the next round of improvements.")
             st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Footer (all tabs)
+# ---------------------------------------------------------------------------
+st.markdown(
+    "<div class='gp-footer'>GradePulse · Student Result Aggregator — developed by "
+    "<a href='https://rajendharare.tech'>Rajendhar Are</a> · "
+    "<a href='https://linkedin.com/in/rajendhar-are'>LinkedIn</a></div>",
+    unsafe_allow_html=True,
+)

@@ -222,6 +222,29 @@ def pass_fail_breakdown(df: pd.DataFrame, semester_labels: List[str]) -> pd.Data
     return pd.DataFrame(rows)
 
 
+def backlog_report(df: pd.DataFrame, semester_labels: List[str]) -> pd.DataFrame:
+    """
+    Every student x failing subject (grade F) across the selected semesters.
+    One row per failed subject attempt; students with no F grades simply don't
+    appear. The 'F' rows are the raw material for the backlog matrix shown in
+    the Analysis tab and for the PDF report.
+    """
+    mask = (
+        df["semester_label"].isin(semester_labels)
+        & df["subject_code"].fillna("").astype(str).ne("")
+        & df["grade"].fillna("").astype(str).eq("F")
+    )
+    sub = df[mask].copy()
+    if sub.empty:
+        return pd.DataFrame(columns=["roll_number", "semester_label", "subject_code", "subject_name"])
+    sub = sub[["roll_number", "semester_label", "subject_code", "subject_name"]]
+    sub["subject_name"] = sub["subject_name"].fillna("").astype(str)
+    sub = sub.drop_duplicates().sort_values(
+        ["roll_number", "semester_label", "subject_code"], kind="mergesort",
+    )
+    return sub.reset_index(drop=True)
+
+
 def scope_summary(students_count: int, branches: List[str], semesters: List[str],
                   batch_year: str, reg_start: int, reg_end: int,
                   include_lateral: bool, lat_start: int, lat_end: int) -> str:
