@@ -83,6 +83,8 @@ SEMESTER_LABELS = [
     "II YEAR IV SEM",
     "III YEAR V SEM",
     "III YEAR VI SEM",
+    "IV YEAR VII SEM",
+    "IV YEAR VIII SEM",
 ]
 
 

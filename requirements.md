@@ -37,6 +37,8 @@ Semesters supported (labels used in the UI and Excel):
 | II YEAR IV SEM   |
 | III YEAR V SEM   |
 | III YEAR VI SEM  |
+| IV YEAR VII SEM  |
+| IV YEAR VIII SEM |
 
 ## 4. Roll number scheme
 
@@ -229,9 +231,11 @@ Three pass/fail definitions (per faculty request):
 Views exposed in the app after a fetch:
 - Headline KPIs (the 3 definitions + avg SGPA) over the whole selected scope.
 - Per-semester table (all three definitions per semester).
-- **4th Year (III YEAR V SEM + VI SEM) combined** — "IV YEAR VII/VIII" results
-  are not announced yet and are never counted; the row only appears when
-  students actually have V/VI data (never a phantom 0%).
+- **4th Year (III YEAR V SEM + VI SEM) combined** — the full programme runs 8
+  semesters (I–VIII); "IV YEAR VII/VIII" results are not announced yet for the
+  current batch and are never counted until a run actually selects them (the
+  labels exist so faculty can fetch them once published). The row only appears
+  when students actually have V/VI data (never a phantom 0%).
 - **Subject failure ranking** — subjects with most `F` grades (code, name,
   attempts, fails, pass-rate), bar + table.
 - **Pass vs Fail pie chart** — donut per semester / overall scope
