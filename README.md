@@ -7,6 +7,8 @@
 ![Pandas](https://img.shields.io/badge/pandas-150458?logo=pandas&logoColor=white)
 ![Selenium](https://img.shields.io/badge/Selenium-43B02A?logo=selenium&logoColor=white)
 
+**Visibility:** private repository — authorized access only. Do not fork, mirror, or share outside the institution.
+
 ## Authorized Use Only
 
 > **This tool is intended solely for authorized institutional use by designated faculty/staff.**
@@ -31,6 +33,10 @@ gate works internally) are intentionally omitted here.
 Keep this repository **private** — portal-integration code has no place in a
 public repo.
 
+Management and rotation of the shared credential is coordinated with the
+faculty admin; rotate it whenever access changes or after any suspected
+exposure.
+
 ## What it does
 
 - **Bulk fetch, fast** — portal JSON API, **~0.35 s per student**, all
@@ -48,8 +54,9 @@ public repo.
   and roll range you pick in that run; login-failed students are excluded and
   listed so you can **re-run just them**.
 
-> **Requirements are tracked in `requirements.md`** — read it first; it is
-> the source of truth for behavior.
+> **Requirements are tracked in `requirements.md`** — the detailed behavioral
+> spec (auth model, fetch scope, output format, reliability rules, analytics
+> definitions, deployment notes). Read it before making changes.
 
 ## Architecture
 
@@ -102,7 +109,6 @@ ignored) as long-format CSV + raw JSON per branch.
 | API fetch per student | ~0.35 s (all semesters in one call) |
 | Fallback trigger | Automatic, per-student, on API failure |
 | Default retries before marking a student failed | 2 |
-| Fast mode (`max_retries = 0`) — skip failing student | Immediate (no extra API attempt, no browser) |
 
 ## Data Handling
 
