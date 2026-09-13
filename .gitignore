@@ -12,6 +12,9 @@ env/
 # Sensitive fetched data — contains real student records. Never commit.
 results_cache/
 
+# Local faculty notes & feedback store (no DB yet)
+app_data/
+
 # OS / editor junk
 .DS_Store
 Thumbs.db
