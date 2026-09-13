@@ -585,6 +585,25 @@ def fetch_all_results_api(
     return results
 
 
+def _is_hard_login_failure(error: Optional[str]) -> bool:
+    """
+    True when the API rejected the roll number as a credential (success=false
+    on login). This is an account-level problem: retrying, or trying the
+    browser login, never fixes it and just burns ~90s+ per affected student
+    (verified live with 2451-23-750-033).
+    """
+    return (error or "").strip() == "Login failed"
+
+
+def _is_worth_browser_fallback(error: Optional[str]) -> bool:
+    """
+    Only transient-ish API failures (network hiccups, server errors) justify
+    the expensive browser fallback. Hard login failures and missing-data
+    errors won't change in the browser.
+    """
+    return not _is_hard_login_failure(error)
+
+
 def fetch_all_results_auto(
     roll_numbers: List[str],
     semester_labels: List[str],
@@ -600,17 +619,22 @@ def fetch_all_results_auto(
     Strategy per student:
       1. Try the fast JSON API (shared requests.Session, retried up to
          `max_retries` times).
-      2. If the student still fails, quietly fall back to a browser session
-         for THAT student only.
+      2. If the student still fails and the failure is *not* a hard login
+         rejection, quietly fall back to a browser session for that student
+         only (built once, reused for later fallbacks).
 
-    The browser driver is built lazily on the FIRST student that needs it and
-    reused for every later fallback, so a fully-API-clean run never opens
-    Chrome at all. If any student fails even after retries and browser
-    fallback, their StudentResult keeps an `error` so the UI can exclude them
-    from analytics.
+    Time-saving rules (faculty requirement — time is crucial):
+      - max_retries == 0: a failed student is skipped immediately. No extra
+        API attempts, no browser fallback, straight on to the next student.
+      - Account-level "Login failed" errors NEVER trigger the browser, even
+        with retries enabled — the browser login fails for the same reason,
+        so retrying there just wastes ~90s per affected student.
+
+    If a student still fails, their StudentResult keeps an `error` so the UI
+    can exclude them from analytics and list them for a re-run.
 
     progress_callback(index, total, roll_number) -- optional, called once per
-    student after it is done (API tried, browser fallback if needed).
+    student after it is done (API tried, browser fallback if used).
     """
     session = requests.Session()
     session.headers.update({"Content-Type": "application/json"})
@@ -623,7 +647,8 @@ def fetch_all_results_auto(
             student = _fetch_one_via_api_with_retry(
                 session, roll, semester_labels, max_retries=max_retries, retry_delay=retry_delay,
             )
-            if student.error:
+
+            if student.error and max_retries > 0 and _is_worth_browser_fallback(student.error):
                 log.warning("%s: API failed (%s) — falling back to browser", roll, student.error)
                 if driver is None:
                     log.info("Building headless browser for fallbacks...")
@@ -635,6 +660,11 @@ def fetch_all_results_auto(
                 if not fb.error:
                     log.info("%s: recovered via browser", roll)
                     student = fb
+            elif student.error:
+                log.warning(
+                    "%s: skipped (%s) [retries=%d, browser fallback off]",
+                    roll, student.error, max_retries,
+                )
 
             results.append(student)
             if progress_callback:
