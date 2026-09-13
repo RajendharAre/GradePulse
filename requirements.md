@@ -97,38 +97,60 @@ Consistency rules:
 
 ## 6. Reliability & etiquette
 
-- **API mode (default)**: the tool logs each student in via the portal's JSON
-  endpoints using one shared `requests` session. A tiny jitter delay
-  (~0.15 s) sits between students; transient failures (server throttling,
-  occasional SQL hiccups) are **auto-retried** (`max_retries`, default 2)
-  with a short backoff before a student is reported as failed.
-- **Browser mode (fallback, Selenium)**: a single reused headless Chrome for
-  the whole run — cookies are cleared before every student's login so
-  sessions can never leak between students.
-- Browser runs headless by default (toggle available in the UI).
+- **API first (default), browser fallback only when worth it**:
+  - Every student is tried via the portal's JSON API first (one shared
+    `requests` session; `max_retries` retries, default 2, with a short
+    backoff for transient/server hiccups) before a student is reported as
+    failed.
+  - The headless-browser fallback builds lazily and reuses ONE Chrome for the
+    whole run; cookies are cleared before every browser login so sessions can
+    never leak between students. It engages ONLY for transient failures when
+    retries > 0.
+- **Speed rules (faculty requirement — time is crucial)**:
+  - `max_retries = 0` means "fastest possible run": a failing student is
+    skipped immediately (no extra API attempts, no browser) and the fetch
+    moves straight on to the next student.
+  - Hard **`Login failed` (credential rejection)** errors NEVER trigger the
+    browser fallback, even with retries enabled — the browser fails for the
+    same reason and would just burn ~90 s per affected student (verified with
+    `2451-23-750-033`, which fails on both API and browser).
+- **Results cache**: every fetch mirrors the run to
+  `results_cache/<batch_year>/` (long-format CSV + raw JSON) as a
+  debugging/repro mirror only — **analytics always read the live run, never
+  the cache.**
 - Recommended use: once per exam cycle, not repeatedly.
-- **Results cache**: every fetch also writes a per-branch cache under
-  `results_cache/<batch_year>/` (long-format CSV + raw JSON). Exploring the
-  analytics never re-hits the portal — rerun a branch only to refresh it.
 
-## 7. UI (Streamlit — `app.py`)
+## 7. UI (Streamlit — `app.py`) — 5 tabs
 
-Faculty can set:
-- Batch year, college code
-- **Branch(es)** — multiselect from the configured `BRANCH_CODES`, plus a
-  manual "branch not listed?" entry (name + 3-digit code) for this run only
-- Regular serial range and lateral serial range (toggle)
-- Which semester(s) to fetch
-- Retries per failed student (with an always-visible explanation of what it does)
+Top nav is a segmented control; the active tab lives in session state
+(keyless widget) so buttons anywhere can switch tabs.
 
-Fetching is fully automatic — **no fetch-method choice is exposed**. Every
-student is fetched via the API fast path first; if that fails, the tool
-silently falls back to a headless browser for that student (browser is built
-lazily, only when first needed).
+1. **Home** — platform overview, developer info (Rajendhar Are,
+   `2451-23-750-011`, rajendharare.tech, LinkedIn), a "How GradePulse
+   analyses results" explainer, and quick buttons to jump to Results
+   / Analysis.
+2. **Results** — the aggregator:
+   - Section 1 Roll Number Range: batch year, college code, branch
+     multiselect (from `BRANCH_CODES`) plus a manual "branch not listed?"
+     entry (name + 3-digit code) for this run only; regular + lateral serial
+     ranges.
+   - Section 2 Semester(s) to fetch.
+   - Section 3 Fetch & Download: retries per failed student (with an
+     always-visible explanation incl. the `max_retries = 0` fast mode), the
+     Fetch button, then post-run status (OK/failed counts), the
+     failed-student list, the Excel download and a "View Analysis" shortcut.
+3. **Analysis** — the visuals/reports for EXACTLY the last run's selection,
+   with an empty state that guides to Results when nothing was fetched yet.
+4. **Notes** — faculty notes per roll number (detained, department details,
+   subject codes, ...) with categories; stored locally under `app_data/`
+   (JSON, no DB yet), searchable and deletable.
+5. **Feedback** — seeded positive feedback from faculty plus a submit form;
+   stored locally until a real feedback database is built.
 
-No credential fields in the UI — login credentials are always derived
-from each roll number. After the run: Excel download (same format as before)
-+ results cache written for the analytics layer.
+Fetching is fully automatic — **no credential fields and no fetch-method
+choice are exposed in the UI**. Login credentials are always derived from
+each roll number; see §6 for the auto-API + selective-browser-fallback
+strategy.
 
 **Analytics scope:** any analytics shown reflect EXACTLY the branch(es) +
 batch + serial range selected in this run — never previously-cached data.
@@ -223,3 +245,5 @@ passed — consistent with the Excel FAILED rule.
 - Comparing results across batches/branches in one workbook.
 - Interactive Plotly-style charts inside the Streamlit UI (Step 3).
 - Running thumbnails/photos alongside the results.
+- A shared database for faculty Notes and Feedback (currently local JSON
+  under `app_data/`, git-ignored) with server-side storage + access control.
