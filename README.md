@@ -19,9 +19,15 @@ data it reads and produces as confidential academic records.
 
 ## Access Control
 
-The deployed application is **gated to authorized institutional users**; no
-student data is reachable without an authorized session. Implementation
-details of the gate are intentionally not documented in this repository.
+Access is gated behind an authentication layer — **institutional email +
+password** — before any fetch, analytics, or download feature is reachable;
+no student data is readable without an authorized session. It is an
+admission-control gate (domain-restricted email plus a shared credential),
+**not** a per-user identity/SSO system — treat it as a first line of defence,
+not as a substitute for keeping the repository, the data, and the deployed
+link restricted to authorized personnel. Implementation specifics (how the
+gate works internally) are intentionally omitted here.
+
 Keep this repository **private** — portal-integration code has no place in a
 public repo.
 
@@ -117,6 +123,10 @@ ignored) as long-format CSV + raw JSON per branch.
   data patterns are not for public exposure).
 - The downloaded Excel file contains every student's grades — treat it like
   any other sensitive academic record.
+- **Reporting a concern:** if you discover a security issue or suspect
+  unauthorized access to the tool or its data, contact the developer
+  ([Rajendhar Are](https://rajendharare.tech)) or the faculty coordinator
+  immediately.
 
 ---
 
