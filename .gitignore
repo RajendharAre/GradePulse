@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Streamlit runtime
+.streamlit/secrets.toml
+
+# Sensitive fetched data — contains real student records. Never commit.
+results_cache/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
