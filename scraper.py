@@ -1,12 +1,12 @@
 """
 scraper.py
-Core fetching logic for pulling students' exam results from matrusri.skolo.in.
+Core fetching logic for pulling students' exam results from the college
+examination portal.
 
-Credential model (per requirements.md):
+Credential model:
     - NO admin/faculty login is used.
-    - Each student is logged in individually using their STUDENT account:
-          username = roll number (e.g. "2451-23-750-011")
-          password = same roll number
+    - Each student is logged in individually using credentials derived from
+      their roll number.
 
 Two strategies (both keep results identical):
 
@@ -16,20 +16,18 @@ AUTO PATH (default, fetch_all_results_auto):
     (no visible choice exposed to the user). This gives the speed of the API
     with the resilience of the browser for the occasional failure.
 
-  FAST PATH (fetch_all_results_api):
-    The portal's SPA talks to a Spring JSON backend on port 8443. We log in
-    via  POST /cms/api/auth/login  (returns a JWT), resolve the internal
-    student id via  GET /cms/studentdetail?userId=..., then call
-    GET /cms/getAllRecords/s_get_exam_student_results  once with
-    in_course_year_id=0 — which returns ALL semesters for that student in a
-    single response. ~0.35 s per student, no browser.
+FAST PATH (fetch_all_results_api):
+    The portal exposes a JSON backend. We authenticate, resolve the internal
+    student id, then request the student's exam results with a single query
+    that returns ALL semesters in one response. ~0.35 s per student, no
+    browser.
 
 BROWSER PATH (fetch_all_results):
     One shared, headless Chrome is built lazily and only when needed. Cookies
     are cleared before each student's login so sessions can never leak.
 
-The selectors and API details are verified live (2026-09-12/13) and tracked
-in requirements.md §8.
+Portal-specific details (endpoints, selectors) live only in the code — they
+are intentionally not tracked in documentation files.
 """
 
 import re
@@ -62,22 +60,18 @@ STUDENT_RESULTS_URL = f"{BASE_URL}/#/admin-examination-section/student-exam-resu
 DEFAULT_WAIT = 15  # seconds, generous because it's a JS SPA
 
 # ---------------------------------------------------------------------------
-# Direct JSON API (discovered 2026-09-13 from the SPA's network traffic).
-# The Angular SPA hits a Spring backend on port 8443. These endpoints let us
-# fetch a student's results with ~3 HTTP requests, no browser at all:
+# Portal integration constants (discovered from the portal's own network
+# traffic). A student's results can be fetched with ~3 HTTP requests:
 #
-#   1. POST /cms/api/auth/login            {usernameOrEmail, password, isMobile:false}
-#        -> { data: <JWT> }                JWT "sub" = internal userId
-#   2. GET  /cms/studentdetail?userId=<id> -> { data: { studentId: ... } }
-#   3. GET  /cms/getAllRecords/s_get_exam_student_results
-#          + in_std_id=<studentId> & in_course_year_id=0 (0 = ALL semesters)
-#        -> { data: { result: [ [subject rows], ... ] } }  (one group per semester)
+#   1. authenticate            -> returns a token (sub = internal user id)
+#   2. resolve internal student id
+#   3. request exam results      (single query, ALL semesters)
 # ---------------------------------------------------------------------------
 API_BASE = "https://matrusri.skolo.in:8443/cms"
 API_LOGIN_URL = f"{API_BASE}/api/auth/login"
 API_STUDENT_DETAIL_URL = f"{API_BASE}/studentdetail"
 API_EXAM_RESULTS_URL = f"{API_BASE}/getAllRecords/s_get_exam_student_results"
-API_COLLEGE_ID = 17  # MVSR Engineering College (taken from the SPA's requests)
+API_COLLEGE_ID = 17  # institutional id constant, from the portal's own requests
 
 
 @dataclass
@@ -406,8 +400,8 @@ def fetch_student_results_api(
     """
     Fetch ONE student via the portal's JSON API using a shared requests.Session.
 
-    Uses the same credential model as the browser path: username AND password
-    are both the roll number. Returns a StudentResult (error message set if the
+    Uses the same credential model as the browser path: credentials are derived
+    from the roll number. Returns a StudentResult (error message set if the
     account can't be logged into / has no data).
     """
     headers = {"Content-Type": "application/json"}
@@ -586,11 +580,10 @@ def fetch_all_results_api(
 
 
 def _is_hard_login_failure(error: Optional[str]) -> bool:
-    """
-    True when the API rejected the roll number as a credential (success=false
+    """True when the API rejected the roll number as a credential (success=false
     on login). This is an account-level problem: retrying, or trying the
     browser login, never fixes it and just burns ~90s+ per affected student
-    (verified live with 2451-23-750-033).
+    (verified live during benchmarking).
     """
     return (error or "").strip() == "Login failed"
 

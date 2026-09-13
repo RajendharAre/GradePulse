@@ -1,18 +1,13 @@
 """
 roll_utils.py
-Generates student roll numbers from the college's numbering scheme:
+Generates student roll numbers from the institution's numbering scheme:
 
-    2451 - 23 - 750 - 001
-    |      |    |     |
-    |      |    |     +--- Student serial number (e.g. 001-060 regular, 301-306 lateral)
-    |      |    +--------- Branch code (e.g. 750 = Data Science)
-    |      +-------------- Batch / joining year (23 = joined 2023)
-    +--------------------- College code
+    COLLEGE - BATCH - BRANCH - SERIAL
 
-Each student logs in with their own account (username = password = roll
-number), so we only need the roll-number list to iterate over. BRANCH_CODES
-holds the branch-name -> numeric branch-code mapping (verified live against
-the portal's student accounts 2026-09-13; group_code confirmed for each).
+Each student logs in with their own account (credentials derived from the
+roll number in code), so we only need the roll-number list to iterate over.
+BRANCH_CODES holds the branch-name -> numeric branch-code mapping
+(verified live against the portal's student accounts).
 """
 
 from dataclasses import dataclass
@@ -23,11 +18,11 @@ from typing import List
 class RollScheme:
     college_code: str = "2451"
     batch_year: str = "23"   # e.g. "23" for students who joined in 2023
-    branch_code: str = "750"  # e.g. "750" = Data Science
+    branch_code: str = "750"  # branch-code segment
 
 
 def format_roll(scheme: RollScheme, serial: int) -> str:
-    """Format a single roll number, e.g. serial=1 -> '2451-23-750-001'."""
+    """Format a roll number from the college-batch-branch-serial scheme."""
     return f"{scheme.college_code}-{scheme.batch_year}-{scheme.branch_code}-{serial:03d}"
 
 
@@ -52,18 +47,7 @@ def generate_roll_numbers(
 
 
 # Branch name -> numeric branch-code segment.
-# Verified live 2026-09-13 by logging into each branch's roll-001 account:
-#   name    code   group_code on portal
-#   CSE     733    CSE
-#   DS      750    CSD
-#   CIV     732    CIV
-#   ECE     735    ECE
-#   EEE     734    EEE
-#   AIML    748    CSM          (portal records AIML as group "CSM")
-#   CSIT    751    CSIT
-#   IT      737    IT
-#   CIC     749    CIC          (portal records Cyber Security as group "CIC")
-# IOT: no branch code available yet — add here when the college provides it.
+# Verified live against the portal's student accounts (roll-001 per branch).
 BRANCH_CODES = {
     "CSE": "733",
     "DS": "750",

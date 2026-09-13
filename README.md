@@ -1,35 +1,69 @@
 # GradePulse
 
-> **Bulk-fetch student exam results from the college portal, export Excel reports, and get pass/fail analytics & subject-level insights for any year/semester.**
+> **Bulk-fetch student exam results from the college examination portal, export Excel reports, and get pass/fail & subject-level analytics for any year/semester.**
 
-GradePulse logs in as each student automatically (username = password = roll
-number), pulls all semesters from the portal's JSON API (~0.35 s/student,
-with an automatic browser fallback if the API hiccups), writes a CSV/JSON
-cache, and serves a Streamlit UI for faculty.
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?logo=streamlit&logoColor=white)
+![Pandas](https://img.shields.io/badge/pandas-150458?logo=pandas&logoColor=white)
+![Selenium](https://img.shields.io/badge/Selenium-43B02A?logo=selenium&logoColor=white)
 
-**What you get:**
-- **Excel reports** — per-semester sheets with subject-name columns,
-  FAILED / F-grade highlighting
-- **Pass/fail analytics** — three definitions: Promoted (has SGPA), Clean
-  pass (no F), Subject pass-rate — across any selected year/semester
-- **Subject failure ranking** — which subjects fail the most, with pass-rates
-- **Branch comparison** — side-by-side metrics when multiple branches are selected
-- **Scoped by design** — analytics always reflect exactly the branch(es),
-  batch and roll range you pick in that run; login-failed students are excluded
+## Authorized Use Only
 
-> **Requirements are tracked in `requirements.md`.** Read it first — it is
-> the source of truth for behavior. Update it whenever requirements change.
+> **This tool is intended solely for authorized institutional use by designated faculty/staff.**
+> It must not be run, forked, or deployed without explicit authorization from the relevant
+> academic institution. Access to the deployed tool is restricted to authorized personnel only.
 
-## Before anything else
+GradePulse fetches each student's results automatically and turns them into
+clean Excel reports and analytics. It is an internal faculty tool — treat the
+data it reads and produces as confidential academic records.
 
-- Confirm with your college's examination section / IT that this
-  automation is authorized. You're pulling academic records programmatically —
-  get the sign-off in writing, even if it's just an email thread.
-- **No admin credentials are used.** The tool logs in as each student using
-  their roll number as username and password. Credentials are derived from the
-  roll number and are never stored or logged.
-- `results_cache/` contains real student records and is **git-ignored** —
-  never push it to a public repository.
+## Access Control
+
+The deployed application is **gated to authorized institutional users**; no
+student data is reachable without an authorized session. Implementation
+details of the gate are intentionally not documented in this repository.
+Keep this repository **private** — portal-integration code has no place in a
+public repo.
+
+## What it does
+
+- **Bulk fetch, fast** — portal JSON API, **~0.35 s per student**, all
+  semesters in a single call, with an automatic silent browser fallback per
+  student if the API hiccups (no admin credentials are used; each student is
+  fetched via their own portal account).
+- **Excel reports** — `Summary` sheet + one sheet per semester (subject-name
+  columns), with FAILED / F-grade highlighting.
+- **Pass/fail analytics** — three definitions (Promoted / Clean pass /
+  Subject pass-rate) across any selected scope, per-semester tables, a
+  combined 4th-year row, subject failure ranking, branch comparison.
+- **Backlog tooling** — failed-subject report searchable by roll number, plus
+  a per-student backlog CSV and an on-demand PDF report.
+- **Scoped by design** — analytics always reflect exactly the batch, branch
+  and roll range you pick in that run; login-failed students are excluded and
+  listed so you can **re-run just them**.
+
+> **Requirements are tracked in `requirements.md`** — read it first; it is
+> the source of truth for behavior.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    F[Faculty selects batch, branches, roll range, semesters]
+    F --> A
+    A[API fast path<br/>~0.35 s per student<br/>all semesters in one call]
+    A -->|success| R[(Tidy per-student results)]
+    A -->|transient failure| B[Headless browser fallback<br/>per student only, when retries > 0]
+    B --> R
+    R --> C[(Local result cache<br/>git-ignored)]
+    R --> X[Excel workbook<br/>Summary + per-semester sheets]
+    R --> AN[Analytics layer<br/>KPIs, rankings, backlog, PDF]
+    AN --> D[Streamlit dashboard]
+```
+
+The 2-tier design means a hard credential rejection never falls back to a
+slow browser session (~90 s per affected student avoided), while genuinely
+transient API hiccups still get a browser retry.
 
 ## Setup
 
@@ -37,9 +71,8 @@ cache, and serves a Streamlit UI for faculty.
 pip install -r requirements.txt
 ```
 
-Requires Chrome. The driver is managed automatically by `webdriver-manager`
-(see `build_driver()` in `scraper.py`); it downloads a matching `chromedriver`
-on first run and caches it.
+The browser fallback requires a local Chrome install; `webdriver-manager`
+handles the driver automatically (see `build_driver()` in `scraper.py`).
 
 ## Running it
 
@@ -47,57 +80,44 @@ on first run and caches it.
 streamlit run app.py
 ```
 
-This opens a local web page where faculty enter:
-- Batch year, college code, and roll-number range (regular + lateral)
-- **Branch(es)** to include (multiselect, e.g. CSE, DS, AIML, ...), with a
-  manual entry for any branch code missing from the list
-- Which semester(s) to pull
-- Retries per failed student (with an in-app explanation)
+Faculty then pick batch year and branch(es), roll-number range (regular +
+lateral), which semester(s) to pull, and retries per failed student — then
+**Fetch & Analytics** generates the Excel workbook. No login fields are
+exposed; credentials come from the roll numbers automatically.
 
-...then click **Fetch & Analytics** and download the generated Excel file.
-No login fields are needed — credentials come from the roll numbers. Fetching
-is automatic: API fast path first, silent browser fallback per student if needed.
+Each run also writes a **results cache** (`results_cache/<batch>/`, git-
+ignored) as long-format CSV + raw JSON per branch.
 
-Each run also writes a **results cache** (`results_cache/<batch>/`) as
-long-format CSV + raw JSON per branch. The **analytics section** below the
-button is computed from that exact run: the three pass/fail definitions, a
-per-semester table, a combined **4th Year (III YEAR V + VI SEM)** row, a
-subject failure ranking, and a branch comparison when >1 branch is selected.
+## Performance & Benchmarks
 
-## Selectors
+| Metric | Value |
+|--------|-------|
+| 66 students × 6 semesters via API | **~30 seconds** |
+| API fetch per student | ~0.35 s (all semesters in one call) |
+| Fallback trigger | Automatic, per-student, on API failure |
+| Default retries before marking a student failed | 2 |
+| Fast mode (`max_retries = 0`) — skip failing student | Immediate (no extra API attempt, no browser) |
 
-The DOM selectors for the Angular Material portal are already filled in
-and were verified live (2026-09-12). They are tracked in
-`requirements.md` §8. If the portal markup changes, re-verify those
-selectors before debugging the data pipeline.
+## Data Handling
 
-## Excel output
+- `results_cache/` and `app_data/` are **git-ignored** — they contain real
+  student records and local faculty notes and must never be pushed to a
+  repository.
+- **Credentials are never stored, logged, or printed**; they are derived from
+  each roll number at runtime and discarded after the fetch.
+- Retention: fetched results are kept in the local cache as a debugging
+  mirror. Delete `results_cache/` when the batch/reporting cycle is done —
+  the Excel file you download is the deliverable, and any cached copies
+  should be treated like the Excel file itself (don't leave them in shared or
+  public locations).
 
-- **`Summary`** sheet — one row per student, SGPA/Result for every
-  semester selected, for a quick promotion/backlog overview.
-- **One sheet per semester** — one row per student, one column **per
-  subject name** (grade), plus SGPA/CGPA/Result — the table-style view.
+## Security notes
 
-Highlighting & rules (consistent across all sheets):
-- Grade `F` = **Fail** → that cell gets a **solid red background**.
-- Missing SGPA for a semester → the student is treated as **FAILED**
-  (shown in red on the Summary sheet).
-- Every student gets a row even when a semester has no data.
+- Keep this repository **private** (portal-integration specifics and real
+  data patterns are not for public exposure).
+- The downloaded Excel file contains every student's grades — treat it like
+  any other sensitive academic record.
 
-## Notes on scale & etiquette
+---
 
-- Fetching is fully automatic under the hood: API fast path for every
-  student, and if that fails, a headless browser session for just that
-  student (no exposed options). A full 66-student × 6-semester run through
-  the API takes **~30 seconds**.
-- A tiny jitter delay sits between students, and any transient failure is
-  auto-retried (`max_retries`, default 2) before a student is reported as
-  failed.
-- Browser fallback reuses one session and clears cookies before every
-  student's login (sessions can never leak between students).
-- In the 2026-09-13 benchmark, roll `2451-23-750-033` failed on both the API
-  and browser paths — treat persistently-failing rolls as account-level
-  issues, not bugs in the pipeline.
-- Consider who else can see the downloaded Excel file — it contains every
-  student's grades, so treat it like any other sensitive academic record
-  (don't leave it in a shared/public drive).
+**Developed by [Rajendhar Are](https://rajendharare.tech)**
