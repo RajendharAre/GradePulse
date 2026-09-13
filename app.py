@@ -9,8 +9,7 @@ GradePulse — professional multi-tab Streamlit UI for faculty:
    Feedback   — seeded positive feedback + a form (stored locally, DB later)
 
 Fetching is fully automatic: API fast path first, silent browser fallback per
-student if needed. The tool logs in AS EACH STUDENT using their roll number as
-both username and password (per requirements.md) — no admin credentials needed.
+student if needed. No admin credentials are used.
 
 Run with:  streamlit run app.py
 """
@@ -44,6 +43,27 @@ st.set_page_config(page_title="GradePulse — Student Result Aggregator", layout
 # --- Visit counter: counted once per browser session, badge shown everywhere ---
 if "visit_value" not in st.session_state:
     st.session_state["visit_value"] = record_visit()
+
+
+# --- Faculty access gate ---
+if "faculty_ok" not in st.session_state:
+    st.session_state["faculty_ok"] = False
+
+if not st.session_state["faculty_ok"]:
+    st.markdown(
+        "<div class='gp-brand'>GradePulse</div>"
+        "<div class='gp-tagline'>Student Result Aggregator & Analytics Platform</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("Authorized institutional use only.")
+    email = st.text_input("Institutional email", placeholder="name@department.college.edu")
+    if st.button("Continue", key="gate_go"):
+        given = (email or "").strip().lower()
+        if "@" in given and given.endswith("mvsrec.edu.in"):
+            st.session_state["faculty_ok"] = True
+            st.rerun()
+        st.error("Access is limited to authorized accounts.")
+    st.stop()
 
 
 def _safe_filename(name: str) -> str:
@@ -236,7 +256,7 @@ if nav == "Home":
         st.markdown("### Developed by")
         st.markdown(
             "**Rajendhar Are**  \n"
-            "Roll No : `2451-23-750-011`  \n"
+            "Roll No : `2XXX-XX-XXX-XXX`  \n"
             "Visit : [rajendharare.tech](https://rajendharare.tech)  \n"
             "Connect : [linkedin.com/in/rajendhar-are](https://linkedin.com/in/rajendhar-are)"
         )
@@ -329,7 +349,7 @@ elif nav == "Results":
     custom_code = custom_code.strip() if custom_code else ""
     if custom_code:
         if not (custom_code.isdigit() and len(custom_code) == 3):
-            st.warning("Branch code should be exactly 3 digits (e.g. 733).")
+            st.warning("Branch code should be exactly 3 digits.")
         elif custom_code in BRANCH_CODES.values():
             st.info(f"Code {custom_code} is already in the list — no need to enter it manually.")
         else:
@@ -551,7 +571,7 @@ elif nav == "Analysis":
                 st.caption("One row per failed subject attempt — the list faculty "
                            "usually needs for mentoring and committee meetings.")
                 bl_filter = st.text_input(
-                    "Filter by roll number", placeholder="e.g. 2451-23-733",
+                    "Filter by roll number", placeholder="e.g. 2XXX-XX-XXX-XXX",
                     key="bl_filter",
                 )
                 view = bl
@@ -621,7 +641,7 @@ elif nav == "Notes":
     st.subheader("Add a note")
     col1, col2 = st.columns([1, 2])
     category = col1.selectbox("Category", NOTE_CATEGORIES)
-    roll_number = col1.text_input("Roll number (e.g. 2451-23-750-033)")
+    roll_number = col1.text_input("Roll number (e.g. 2XXX-XX-XXX-XXX)")
     col1_, col2_ = st.columns(2)
 
     note_text = st.text_area("Note", placeholder="Describe the detail for this student...", height=120)
@@ -641,7 +661,7 @@ elif nav == "Notes":
     if not notes:
         st.caption("No notes yet.")
     else:
-        filter_roll = st.text_input("Filter by roll number", placeholder="e.g. 2451-23-750")
+        filter_roll = st.text_input("Filter by roll number", placeholder="e.g. 2XXX-XX-XXX-XXX")
         if filter_roll:
             notes = [n for n in notes if filter_roll.strip().upper() in n["roll_number"]]
         st.dataframe(
@@ -709,6 +729,10 @@ elif nav == "Feedback":
 # ---------------------------------------------------------------------------
 # Footer (all tabs)
 # ---------------------------------------------------------------------------
+if st.button("Sign out", key="sign_out"):
+    st.session_state["faculty_ok"] = False
+    st.session_state.pop("nav_active", None)
+    st.rerun()
 st.markdown(
     "<div class='gp-footer'>GradePulse · Student Result Aggregator — developed by "
     "<a href='https://rajendharare.tech'>Rajendhar Are</a> · "
