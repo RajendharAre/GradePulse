@@ -243,10 +243,62 @@ Views exposed in the app after a fetch:
 Missing semesters (e.g. lateral entries that start later) are counted as NOT
 passed — consistent with the Excel FAILED rule.
 
-## 10. Out of scope / future ideas (not built yet)
+**Backlog report (faculty need):** the Analysis backlog section flags the
+students to target first:
+- Lists every (roll, name, subject, semester) combination with grade `F` —
+  searchable/filterable by roll number.
+- **Backlog projected CSV** — one student per row (roll, name, backlogs,
+  earliest-failed semester, last-updated semester) for follow-up records.
+- The same count (failed subject attempts × affected students) is reprinted on
+  the PDF report.
+
+## 11. Pre-deployment extras (Step 4)
+
+Shipped in the same release as the deployment handoff:
+
+- **Visit counter (no DB)** — counts browser sessions via the free public
+  `visitor-badge.laobi.icu` badge API (increments once per session; a
+  `countapi.xyz` fallback is coded for the cloud runner). The counter is a
+  session count, never a UTC-unique-visitor number. If the badge service is
+  unreachable the UI shows "—" and nothing breaks. For real unique-visitor
+  analytics later, swap in Google Analytics via `.streamlit/secrets.toml`
+  (`visit_counter.py` is the only file to touch).
+- **Re-run failed students** — after a run, the failed list gets a
+  "Re-run failed students" button that refetches ONLY the rolls that failed,
+  using the same batch/branch/retries settings; re-run results update the
+  active run scope. The retries caption now explicitly teaches the
+  `max_retries = 0` fast path and its "skipped & listed for re-run" behaviour.
+- **UI polish + animations** — branded header (GradePulse + visits badge),
+  soft fade/slide entrance for cards via custom CSS (`gp-*` classes), a footer
+  with the developer's site, and all widget calls moved to the modern
+  `width="stretch"` API (no `use_container_width` deprecation warnings).
+- **Analytics PDF report** — `report_export.py` (fpdf2, zero web fonts)
+  generates a printable A4 summary on demand: scope + run KPIs, the
+  4th-year combined row, per-semester pass-rate table, top failing subjects,
+  and the backlog line. Backed by `st.download_button`, no server write.
+- **Backlog project list** — see §9; ships a per-student backlog CSV for
+  counselling follow-up.
+
+## 12. Out of scope / future ideas (not built yet)
 
 - Comparing results across batches/branches in one workbook.
 - Interactive Plotly-style charts inside the Streamlit UI (Step 3).
 - Running thumbnails/photos alongside the results.
 - A shared database for faculty Notes and Feedback (currently local JSON
   under `app_data/`, git-ignored) with server-side storage + access control.
+- GPT-style natural-language explanation of pacing/backlog (idea noted, not
+  selected — the faculty-focused reports above cover it far better).
+
+## 13. Deployment (Step 5)
+
+- Target: **Streamlit Community Cloud** (free tier) — deploy straight from
+  the GitHub repo; Streamlit auto-installs `requirements.txt` and serves
+  `app.py` past the HTTPS URL of the app's choosing.
+- Streamlit re-runs the script per interaction; **the visit counter's
+  "once per session" behaviour matters on cloud** because instances are
+  recreated — the session-gated increment keeps counts sane without a DB.
+- `results_cache/`, `app_data/` are git-ignored so real student data and
+  local notes never leave the repo; until a DB is added, Notes/Feedback are
+  per-instance (the preseeded seed data is still shown).
+- Optional: `.streamlit/secrets.toml` (git-ignored) for future GA tokens /
+  portals / DB URLs.
