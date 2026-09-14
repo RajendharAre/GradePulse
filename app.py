@@ -642,24 +642,35 @@ elif nav == "Notes":
     st.caption(
         "Add notes about individual students (e.g. detained, department details, "
         "subject codes) so the context is available alongside the reports. Notes are "
-        "stored locally on this machine — a shared database comes later."
+        "stored in a shared spreadsheet."
     )
+
+    if st.session_state.pop("note_clear", False):
+        st.session_state["note_roll"] = ""
+        st.session_state["note_text"] = ""
+        st.session_state["note_category"] = NOTE_CATEGORIES[0]
+
+    note_notice = st.session_state.pop("note_notice", None)
+    if note_notice == "added":
+        st.success("Your note has been saved. Thank you!")
+    elif note_notice == "duplicate":
+        st.warning("This note has already been saved for this student.")
 
     st.subheader("Add a note")
     col1, col2 = st.columns([1, 2])
-    category = col1.selectbox("Category", NOTE_CATEGORIES)
-    roll_number = col1.text_input("Roll number (e.g. 2XXX-XX-XXX-XXX)")
+    category = col1.selectbox("Category", NOTE_CATEGORIES, key="note_category")
+    roll_number = col1.text_input("Roll number (e.g. 2XXX-XX-XXX-XXX)", key="note_roll")
     col1_, col2_ = st.columns(2)
 
-    note_text = st.text_area("Note", placeholder="Describe the detail for this student...", height=120)
+    note_text = st.text_area("Note", placeholder="Describe the detail for this student...", height=120, key="note_text")
     if st.button("Save note", type="primary"):
-        if not roll_number.strip():
-            st.error("Enter a roll number.")
-        elif not note_text.strip():
-            st.error("Enter the note description.")
+        status = add_note(roll_number, note_text, category)
+        if status == "error":
+            st.error("Enter a roll number and note description.")
         else:
-            add_note(roll_number, note_text, category)
-            st.success(f"Note saved for {roll_number.strip().upper()}.")
+            st.session_state["note_notice"] = status
+            st.session_state["note_clear"] = True
+            st.rerun()
 
     st.divider()
 
@@ -710,6 +721,16 @@ elif nav == "Feedback":
         "Submissions are shared with the tool's maintainers."
     )
 
+    if st.session_state.pop("fb_clear", False):
+        for field in ("fb_name", "fb_role", "fb_message"):
+            st.session_state[field] = ""
+
+    fb_notice = st.session_state.pop("fb_notice", None)
+    if fb_notice == "added":
+        st.success("Your feedback has been submitted. Thank you!")
+    elif fb_notice == "duplicate":
+        st.warning("This feedback has already been submitted. Thank you!")
+
     st.subheader("What faculty say")
     for fb in load_feedback():
         with st.container(border=True):
@@ -720,16 +741,16 @@ elif nav == "Feedback":
 
     st.subheader("Share your feedback")
     col1, col2 = st.columns(2)
-    fb_name = col1.text_input("Your name")
-    fb_role = col2.text_input("Your role (e.g. Assistant Professor)")
-    fb_message = st.text_area("Feedback", placeholder="What worked well? What should improve?", height=120)
+    fb_name = col1.text_input("Your name", key="fb_name")
+    fb_role = col2.text_input("Your role (e.g. Assistant Professor)", key="fb_role")
+    fb_message = st.text_area("Feedback", placeholder="What worked well? What should improve?", height=120, key="fb_message")
     if st.button("Submit feedback", type="primary"):
-        if not fb_name.strip() or not fb_role.strip() or not fb_message.strip():
+        status = add_feedback(fb_name, fb_role, fb_message)
+        if status == "error":
             st.error("Please fill in name, role and feedback.")
         else:
-            add_feedback(fb_name, fb_role, fb_message)
-            st.success("Thank you! Your feedback has been recorded and will be "
-                       "reviewed for the next round of improvements.")
+            st.session_state["fb_notice"] = status
+            st.session_state["fb_clear"] = True
             st.rerun()
 
 

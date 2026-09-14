@@ -131,9 +131,11 @@ authorized institutional users.
    subject codes, ...) with categories; stored centrally in a shared Google
    Spreadsheet (service-account key in `.streamlit/secrets.toml`, git-ignored)
    with a local `app_data/` JSON fallback when the sheet is unreachable;
-   searchable and deletable.
+   searchable and deletable. After saving, the form clears and shows a
+   thank-you message; duplicate roll-number + note submissions are rejected.
 5. **Feedback** — a submit form plus reviews from faculty; stored in the same
-   shared spreadsheet as the Notes tab.
+   shared spreadsheet as the Notes tab. The form clears after submitting with
+   a thank-you message, and identical submissions are rejected as duplicates.
 
 Fetching is fully automatic — **no credential fields and no fetch-method
 choice are exposed in the UI**. Login credentials are always derived from

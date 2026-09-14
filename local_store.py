@@ -153,23 +153,39 @@ def load_notes() -> List[dict]:
     return sorted(_read_json(NOTES_FILE), key=lambda n: str(n.get("added", "")), reverse=True)
 
 
-def add_note(roll_number: str, note: str, category: str = "General") -> None:
+def _is_duplicate_note(roll: str, text: str) -> bool:
+    for e in load_notes():
+        if (e.get("roll_number", "").strip().upper() == roll
+                and e.get("note", "").strip().lower() == text.lower()):
+            return True
+    return False
+
+
+def add_note(roll_number: str, note: str, category: str = "General") -> str:
+    """Add a note. Returns 'added', 'duplicate' or 'error'."""
+    roll = roll_number.strip().upper()
+    text = note.strip()
+    if not roll or not text:
+        return "error"
+    if _is_duplicate_note(roll, text):
+        return "duplicate"
     record = {
         "id": int(time.time() * 1000),
-        "roll_number": roll_number.strip().upper(),
-        "note": note.strip(),
+        "roll_number": roll,
+        "note": text,
         "category": category,
         "added": time.strftime("%Y-%m-%d %H:%M"),
     }
     if _sheet_config():
         try:
             _central_append(NOTES_TAB, record)
-            return
+            return "added"
         except Exception:
             pass
     notes = _read_json(NOTES_FILE)
     notes.append(record)
     _write_json(NOTES_FILE, notes)
+    return "added"
 
 
 def delete_note(note_id) -> None:
@@ -198,19 +214,37 @@ def load_feedback() -> List[dict]:
     return _read_json(FEEDBACK_FILE)
 
 
-def add_feedback(name: str, role: str, message: str) -> None:
+def _is_duplicate_feedback(name: str, role: str, message: str) -> bool:
+    for e in load_feedback():
+        if (e.get("name", "").strip().lower() == name.lower()
+                and e.get("role", "").strip().lower() == role.lower()
+                and e.get("message", "").strip().lower() == message.lower()):
+            return True
+    return False
+
+
+def add_feedback(name: str, role: str, message: str) -> str:
+    """Submit feedback. Returns 'added', 'duplicate' or 'error'."""
+    n = name.strip()
+    r = role.strip()
+    m = message.strip()
+    if not n or not r or not m:
+        return "error"
+    if _is_duplicate_feedback(n, r, m):
+        return "duplicate"
     record = {
-        "name": name.strip(),
-        "role": role.strip(),
-        "message": message.strip(),
+        "name": n,
+        "role": r,
+        "message": m,
         "date": time.strftime("%Y-%m-%d %H:%M"),
     }
     if _sheet_config():
         try:
             _central_append(FEEDBACK_TAB, record)
-            return
+            return "added"
         except Exception:
             pass
     fb = _read_json(FEEDBACK_FILE)
     fb.append(record)
     _write_json(FEEDBACK_FILE, fb)
+    return "added"
