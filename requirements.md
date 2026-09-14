@@ -128,10 +128,12 @@ authorized institutional users.
 3. **Analysis** — the visuals/reports for EXACTLY the last run's selection,
    with an empty state that guides to Results when nothing was fetched yet.
 4. **Notes** — faculty notes per roll number (detained, department details,
-   subject codes, ...) with categories; stored locally under `app_data/`
-   (JSON, no DB yet), searchable and deletable.
-5. **Feedback** — seeded positive feedback from faculty plus a submit form;
-   stored locally until a real feedback database is built.
+   subject codes, ...) with categories; stored centrally in a shared Google
+   Spreadsheet (service-account key in `.streamlit/secrets.toml`, git-ignored)
+   with a local `app_data/` JSON fallback when the sheet is unreachable;
+   searchable and deletable.
+5. **Feedback** — a submit form plus reviews from faculty; stored in the same
+   shared spreadsheet as the Notes tab.
 
 Fetching is fully automatic — **no credential fields and no fetch-method
 choice are exposed in the UI**. Login credentials are always derived from
@@ -218,8 +220,8 @@ passed — consistent with the Excel FAILED rule.
 - Comparing results across batches/branches in one workbook.
 - Interactive Plotly-style charts inside the Streamlit UI.
 - Running thumbnails/photos alongside the results.
-- A shared database for faculty Notes and Feedback (currently local JSON
-  under `app_data/`, git-ignored) with server-side storage + access control.
+- A full database + per-user accounts for Notes and Feedback (currently a
+  shared Google Spreadsheet) with fine-grained access control.
 - GPT-style natural-language explanation of pacing/backlog (idea noted, not
   selected — the faculty-focused reports above cover it better).
 
@@ -233,8 +235,9 @@ passed — consistent with the Excel FAILED rule.
   "once per session" behaviour matters on cloud because instances are
   recreated — the session-gated increment keeps counts sane without a DB.
 - `results_cache/` and `app_data/` are git-ignored so real student data and
-  local notes never leave the repo; until a DB is added, Notes/Feedback are
-  per-instance.
+  local fallback files never leave the repo; Notes/Feedback live in a shared
+  Google Spreadsheet reached through the service account in
+  `.streamlit/secrets.toml` (also git-ignored).
 - The headless-browser fallback needs a local Chrome install; on managed
   cloud runners without a browser it is unavailable — runs should use
   `max_retries = 0` (fast mode) there.

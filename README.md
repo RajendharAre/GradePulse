@@ -115,6 +115,10 @@ ignored) as long-format CSV + raw JSON per branch.
 - `results_cache/` and `app_data/` are **git-ignored** — they contain real
   student records and local faculty notes and must never be pushed to a
   repository.
+- Faculty Notes and Feedback are stored in a **shared Google Spreadsheet**
+  accessed with a service account; the key lives in
+  `.streamlit/secrets.toml` (git-ignored) and in the deployment's secrets
+  manager — never in the repo.
 - **Credentials are never stored, logged, or printed**; they are derived from
   each roll number at runtime and discarded after the fetch.
 - Retention: fetched results are kept in the local cache as a debugging

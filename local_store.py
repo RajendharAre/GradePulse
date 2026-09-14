@@ -1,58 +1,130 @@
 """
 local_store.py
-File-based storage for the Notes and Feedback tabs. No database yet (per
-faculty roadmap) — simple JSON files under app_data/ so faculty notes and
-feedback survive page reloads. Everything here is git-ignored.
+Storage for the Notes and Feedback tabs.
 
-The Feedback tab starts with seeded, positive mock feedback so the tab has
-real-looking content until a real feedback database is added later.
+Primary store: a Google Spreadsheet (gspread + a service-account key from
+.streamlit/secrets.toml) so submissions from all faculty sessions land in one
+place the developer can open. If the spreadsheet is not configured or is
+unreachable, every call falls back to local JSON files under app_data/
+(git-ignored) so the app never breaks.
 """
 
 import json
 import os
 import time
-from typing import List, Dict
+from typing import List, Optional
+
+import streamlit as st
 
 STORE_DIR = "app_data"
 NOTES_FILE = os.path.join(STORE_DIR, "notes.json")
 FEEDBACK_FILE = os.path.join(STORE_DIR, "feedback.json")
-SEED_FILE_MARKER = "__seeded__"
-
-# Mock positive feedback shown the first time the Feedback tab is opened.
-# Real feedback will replace these once a database is wired up.
-SEED_FEEDBACK = [
-    {"name": "Neelakanta Rao", "role": "Assistant Professor", "date": "2026-09-10",
-     "message": "The pass/fail analytics straight from the portal saved our department "
-                "hours of manual Excel work every semester."},
-    {"name": "Padma", "role": "Assistant Professor", "date": "2026-09-10",
-     "message": "I could spot the weak subjects across the batch within minutes. Very "
-                "useful for planning tutorials and extra classes."},
-    {"name": "Dr. Rajesh Kulakarni", "role": "Associate Professor - HOD (CSE - allied)",
-     "date": "2026-09-11",
-     "message": "Excellent tool for semester review meetings. I would like this extended "
-                "to more branches and batches."},
-    {"name": "Srinivas Rao", "role": "Assistant Professor", "date": "2026-09-12",
-     "message": "Simple to use, and the Excel export matches exactly what we present to "
-                "the faculty — very professional."},
-]
 
 NOTE_CATEGORIES = ["General", "Detained", "Department", "Subject code", "Transfer", "Other"]
 
+NOTES_TAB = "Notes"
+FEEDBACK_TAB = "Feedback"
+_TAB_HEADERS = {
+    NOTES_TAB: ["id", "roll_number", "note", "category", "added"],
+    FEEDBACK_TAB: ["name", "role", "message", "date"],
+}
+
+
+# ---------------------------------------------------------------------------
+# Central (Google Sheets) access — best effort
+# ---------------------------------------------------------------------------
+
+def _sheet_config() -> Optional[dict]:
+    try:
+        gcp = st.secrets.get("gcp") or {}
+        doc_id = st.secrets.get("spreadsheet_id")
+    except Exception:
+        return None
+    if not gcp or not doc_id:
+        return None
+    if isinstance(gcp, str):
+        try:
+            gcp = json.loads(gcp)
+        except (TypeError, ValueError):
+            return None
+    return {"gcp": gcp, "doc_id": doc_id}
+
+
+def _worksheet(tab: str):
+    cfg = _sheet_config()
+    if not cfg:
+        return None
+    import gspread
+    from google.oauth2.service_account import Credentials
+
+    creds = Credentials.from_service_account_info(
+        cfg["gcp"],
+        scopes=["https://www.googleapis.com/auth/spreadsheets"],
+    )
+    sh = gspread.authorize(creds).open_by_key(cfg["doc_id"])
+    try:
+        return sh.worksheet(tab)
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(title=tab, rows=1000, cols=len(_TAB_HEADERS[tab]))
+        ws.append_row(_TAB_HEADERS[tab])
+        return ws
+
+
+def _central_load(tab: str) -> List[dict]:
+    ws = _worksheet(tab)
+    if ws is None:
+        return []
+    rows = ws.get_all_values()
+    if len(rows) < 2:
+        return []
+    headers = rows[0]
+    out = []
+    for row in rows[1:]:
+        rec = {}
+        for i, header in enumerate(headers):
+            rec[header] = row[i] if i < len(row) else ""
+        if any(str(v).strip() for v in rec.values()):
+            out.append(rec)
+    return out
+
+
+def _central_append(tab: str, record: dict) -> None:
+    ws = _worksheet(tab)
+    if ws is None:
+        return
+    ws.append_row([record.get(h, "") for h in _TAB_HEADERS[tab]],
+                  value_input_option="USER_ENTERED")
+
+
+def _central_delete_note(note_id) -> bool:
+    ws = _worksheet(NOTES_TAB)
+    if ws is None:
+        return False
+    cell = ws.find(str(note_id), in_column=1)
+    if cell is None:
+        return False
+    ws.delete_rows(cell.row)
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Local JSON fallback
+# ---------------------------------------------------------------------------
 
 def _ensure_dir() -> None:
     os.makedirs(STORE_DIR, exist_ok=True)
 
 
-def _read_json(path: str, fallback) -> list:
+def _read_json(path: str) -> list:
     _ensure_dir()
     if not os.path.exists(path):
-        return fallback()
+        return []
     try:
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
-        return data if isinstance(data, list) else fallback()
+        return data if isinstance(data, list) else []
     except (json.JSONDecodeError, OSError):
-        return fallback()
+        return []
 
 
 def _write_json(path: str, data: list) -> None:
@@ -65,24 +137,48 @@ def _write_json(path: str, data: list) -> None:
 # Notes
 # ---------------------------------------------------------------------------
 
-def load_notes() -> List[Dict]:
+def load_notes() -> List[dict]:
     """All student notes, newest first. Each: {id, roll_number, note, category, added}."""
-    return sorted(_read_json(NOTES_FILE, list), key=lambda n: n.get("added", ""), reverse=True)
+    if _sheet_config():
+        try:
+            rows = _central_load(NOTES_TAB)
+            for row in rows:
+                try:
+                    row["id"] = int(row["id"])
+                except (TypeError, ValueError):
+                    pass
+            return sorted(rows, key=lambda n: str(n.get("added", "")), reverse=True)
+        except Exception:
+            pass
+    return sorted(_read_json(NOTES_FILE), key=lambda n: str(n.get("added", "")), reverse=True)
 
 
 def add_note(roll_number: str, note: str, category: str = "General") -> None:
-    notes = _read_json(NOTES_FILE, list)
-    notes.append({
+    record = {
         "id": int(time.time() * 1000),
         "roll_number": roll_number.strip().upper(),
         "note": note.strip(),
         "category": category,
         "added": time.strftime("%Y-%m-%d %H:%M"),
-    })
+    }
+    if _sheet_config():
+        try:
+            _central_append(NOTES_TAB, record)
+            return
+        except Exception:
+            pass
+    notes = _read_json(NOTES_FILE)
+    notes.append(record)
     _write_json(NOTES_FILE, notes)
 
 
 def delete_note(note_id) -> None:
+    if _sheet_config():
+        try:
+            if _central_delete_note(note_id):
+                return
+        except Exception:
+            pass
     notes = [n for n in load_notes() if n.get("id") != note_id]
     _write_json(NOTES_FILE, notes)
 
@@ -91,21 +187,30 @@ def delete_note(note_id) -> None:
 # Feedback
 # ---------------------------------------------------------------------------
 
-def load_feedback() -> List[Dict]:
-    """Feedback entries, oldest first. Seeds the mocked positive list on first use."""
-    def seed():
-        data = [dict(e) for e in SEED_FEEDBACK]
-        _write_json(FEEDBACK_FILE, data)
-        return data
-    return _read_json(FEEDBACK_FILE, seed)
+def load_feedback() -> List[dict]:
+    """Feedback entries, oldest first."""
+    if _sheet_config():
+        try:
+            rows = _central_load(FEEDBACK_TAB)
+            return sorted(rows, key=lambda f: str(f.get("date", "")))
+        except Exception:
+            pass
+    return _read_json(FEEDBACK_FILE)
 
 
 def add_feedback(name: str, role: str, message: str) -> None:
-    fb = load_feedback()
-    fb.append({
+    record = {
         "name": name.strip(),
         "role": role.strip(),
         "message": message.strip(),
         "date": time.strftime("%Y-%m-%d %H:%M"),
-    })
+    }
+    if _sheet_config():
+        try:
+            _central_append(FEEDBACK_TAB, record)
+            return
+        except Exception:
+            pass
+    fb = _read_json(FEEDBACK_FILE)
+    fb.append(record)
     _write_json(FEEDBACK_FILE, fb)

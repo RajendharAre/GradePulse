@@ -5,8 +5,8 @@ GradePulse — professional multi-tab Streamlit UI for faculty:
    Home       — platform overview, developer info, quick navigation
    Results    — pick batch/branch/roll range + semesters, fetch, download Excel
    Analysis   — pass/fail visuals & reports for the exact selection of the run
-   Notes      — faculty notes per student (stored locally, no DB yet)
-   Feedback   — seeded positive feedback + a form (stored locally, DB later)
+   Notes      — faculty notes per student (stored in a shared spreadsheet)
+   Feedback   — faculty feedback form (stored in a shared spreadsheet)
 
 Fetching is fully automatic: API fast path first, silent browser fallback per
 student if needed. No admin credentials are used.
@@ -706,8 +706,8 @@ elif nav == "Notes":
 elif nav == "Feedback":
     st.title("Feedback")
     st.caption(
-        "Feedback from faculty and lecturers helps us improve GradePulse. Submissions "
-        "are stored locally for now; a shared database is planned for the future."
+        "Feedback from faculty and lecturers helps us improve GradePulse. "
+        "Submissions are shared with the tool's maintainers."
     )
 
     st.subheader("What faculty say")
@@ -728,7 +728,7 @@ elif nav == "Feedback":
             st.error("Please fill in name, role and feedback.")
         else:
             add_feedback(fb_name, fb_role, fb_message)
-            st.success("Thank you! Your feedback has been recorded locally and will be "
+            st.success("Thank you! Your feedback has been recorded and will be "
                        "reviewed for the next round of improvements.")
             st.rerun()
 
