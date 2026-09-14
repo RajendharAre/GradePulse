@@ -240,6 +240,9 @@ passed — consistent with the Excel FAILED rule.
   local fallback files never leave the repo; Notes/Feedback live in a shared
   Google Spreadsheet reached through the service account in
   `.streamlit/secrets.toml` (also git-ignored).
+- If the spreadsheet is missing or unreachable the Notes/Feedback tabs show a
+  warning and save to the device's local `app_data/` JSON instead, so data is
+  never lost silently.
 - The headless-browser fallback needs a local Chrome install; on managed
   cloud runners without a browser it is unavailable — runs should use
   `max_retries = 0` (fast mode) there.

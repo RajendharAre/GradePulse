@@ -29,6 +29,35 @@ _TAB_HEADERS = {
     FEEDBACK_TAB: ["name", "role", "message", "date"],
 }
 
+# Which backend the last store call actually used, so the UI can tell faculty
+# when submissions only reach this device. One of:
+#   "sheets"          — shared spreadsheet reached
+#   "local-only"      — no spreadsheet configured (secrets missing)
+#   "local-fallback"  — configured but unreachable, fell back to local JSON
+#   "unknown"         — no store call has happened yet
+_BACKEND_STATE = {"state": "unknown", "at": 0.0}
+
+
+def _mark(state: str) -> None:
+    _BACKEND_STATE["state"] = state
+    _BACKEND_STATE["at"] = time.time()
+
+
+def store_backend() -> str:
+    """Current store backend; re-probes the sheet when the last result is stale."""
+    state = _BACKEND_STATE["state"]
+    if state != "unknown" and time.time() - _BACKEND_STATE["at"] < 10:
+        return state
+    if not _sheet_config():
+        _mark("local-only")
+        return "local-only"
+    try:
+        _central_load(NOTES_TAB)
+        _mark("sheets")
+    except Exception:
+        _mark("local-fallback")
+    return _BACKEND_STATE["state"]
+
 
 # ---------------------------------------------------------------------------
 # Central (Google Sheets) access — best effort
@@ -142,6 +171,7 @@ def load_notes() -> List[dict]:
     if _sheet_config():
         try:
             rows = _central_load(NOTES_TAB)
+            _mark("sheets")
             for row in rows:
                 try:
                     row["id"] = int(row["id"])
@@ -149,7 +179,9 @@ def load_notes() -> List[dict]:
                     pass
             return sorted(rows, key=lambda n: str(n.get("added", "")), reverse=True)
         except Exception:
-            pass
+            _mark("local-fallback")
+    else:
+        _mark("local-only")
     return sorted(_read_json(NOTES_FILE), key=lambda n: str(n.get("added", "")), reverse=True)
 
 
@@ -179,9 +211,12 @@ def add_note(roll_number: str, note: str, category: str = "General") -> str:
     if _sheet_config():
         try:
             _central_append(NOTES_TAB, record)
+            _mark("sheets")
             return "added"
         except Exception:
-            pass
+            _mark("local-fallback")
+    else:
+        _mark("local-only")
     notes = _read_json(NOTES_FILE)
     notes.append(record)
     _write_json(NOTES_FILE, notes)
@@ -192,9 +227,12 @@ def delete_note(note_id) -> None:
     if _sheet_config():
         try:
             if _central_delete_note(note_id):
+                _mark("sheets")
                 return
         except Exception:
-            pass
+            _mark("local-fallback")
+    else:
+        _mark("local-only")
     notes = [n for n in load_notes() if n.get("id") != note_id]
     _write_json(NOTES_FILE, notes)
 
@@ -208,9 +246,12 @@ def load_feedback() -> List[dict]:
     if _sheet_config():
         try:
             rows = _central_load(FEEDBACK_TAB)
+            _mark("sheets")
             return sorted(rows, key=lambda f: str(f.get("date", "")))
         except Exception:
-            pass
+            _mark("local-fallback")
+    else:
+        _mark("local-only")
     return _read_json(FEEDBACK_FILE)
 
 
@@ -241,9 +282,12 @@ def add_feedback(name: str, role: str, message: str) -> str:
     if _sheet_config():
         try:
             _central_append(FEEDBACK_TAB, record)
+            _mark("sheets")
             return "added"
         except Exception:
-            pass
+            _mark("local-fallback")
+    else:
+        _mark("local-only")
     fb = _read_json(FEEDBACK_FILE)
     fb.append(record)
     _write_json(FEEDBACK_FILE, fb)

@@ -29,7 +29,7 @@ from excel_export import export_to_excel
 from data_store import save_results_to_cache, results_to_long_dataframe
 from local_store import (
     load_notes, add_note, delete_note,
-    load_feedback, add_feedback, NOTE_CATEGORIES,
+    load_feedback, add_feedback, NOTE_CATEGORIES, store_backend,
 )
 from visit_counter import record_visit
 from report_export import build_pdf_report
@@ -656,6 +656,12 @@ elif nav == "Notes":
     elif note_notice == "duplicate":
         st.warning("This note has already been saved for this student.")
 
+    backend = store_backend()
+    if backend == "local-only":
+        st.warning("Shared spreadsheet not configured — notes are saved on this device only.")
+    elif backend == "local-fallback":
+        st.warning("Shared spreadsheet unreachable — notes are saved on this device only.")
+
     st.subheader("Add a note")
     col1, col2 = st.columns([1, 2])
     category = col1.selectbox("Category", NOTE_CATEGORIES, key="note_category")
@@ -669,7 +675,8 @@ elif nav == "Notes":
             st.error("Enter a roll number and note description.")
         else:
             st.session_state["note_notice"] = status
-            st.session_state["note_clear"] = True
+            if status == "added":
+                st.session_state["note_clear"] = True
             st.rerun()
 
     st.divider()
@@ -731,6 +738,12 @@ elif nav == "Feedback":
     elif fb_notice == "duplicate":
         st.warning("This feedback has already been submitted. Thank you!")
 
+    backend = store_backend()
+    if backend == "local-only":
+        st.warning("Shared spreadsheet not configured — feedback is saved on this device only.")
+    elif backend == "local-fallback":
+        st.warning("Shared spreadsheet unreachable — feedback is saved on this device only.")
+
     st.subheader("What faculty say")
     for fb in load_feedback():
         with st.container(border=True):
@@ -750,7 +763,8 @@ elif nav == "Feedback":
             st.error("Please fill in name, role and feedback.")
         else:
             st.session_state["fb_notice"] = status
-            st.session_state["fb_clear"] = True
+            if status == "added":
+                st.session_state["fb_clear"] = True
             st.rerun()
 
 
